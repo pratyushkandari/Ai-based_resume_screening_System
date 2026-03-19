@@ -1,129 +1,251 @@
 # backend/app/ml_utils.py
-# Utilities: doc conversion, extraction, parsing, embeddings, similarity, scoring.
 
-import os
 import re
-import uuid
-import subprocess
-from typing import List, Tuple, Dict
-from docx import Document
+import os
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
-# Lazy-loaded model singleton
-_MODEL = None
+# -----------------------------------------------------------------------------
+#  PURPOSE OF THIS FILE:
+# -----------------------------------------------------------------------------
+# This module contains **Machine Learning (ML)** and **text processing utilities**
+# for the Resume Screening System.
+#
+# The functions here help the backend to:
+#   1. Convert resume/job text into vector embeddings (numerical form).
+#   2. Measure semantic similarity between texts.
+#   3. Extract plain text, names, emails, and phone numbers from resumes.
+#   4. Detect skills from resume text based on a known skill list.
+#   5. Combine all of these signals into a single ranking score.
+#
+# Each function can be used independently, which makes debugging and testing
+# simpler for students and beginners.
+# -----------------------------------------------------------------------------
 
-def get_model():
-    global _MODEL
-    if _MODEL is None:
-        _MODEL = SentenceTransformer("all-MiniLM-L6-v2")
-    return _MODEL
+# -----------------------------------------------------------------------------
+# 1️ Load the Sentence Transformer Model
+# -----------------------------------------------------------------------------
+# The "all-MiniLM-L6-v2" model is a small pre-trained model that converts text
+# into numerical vectors (called **embeddings**) which capture meaning.
+#
+# Why embeddings? Because once both job descriptions and resumes are converted
+# into embeddings, we can compute how *semantically similar* they are using
+# cosine similarity (like measuring angle between vectors).
+#
+# If this model isn't installed (e.g., no internet or limited system),
+# we gracefully fallback to a deterministic pseudo-vector generator below.
+# -----------------------------------------------------------------------------
+try:
+    from sentence_transformers import SentenceTransformer
+    MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+except Exception:
+    MODEL = None  # fallback if model isn't available
 
-def safe_save_upload(upload_file, dest_path):
-    # Save UploadFile to disk
-    with open(dest_path, "wb") as buffer:
-        # upload_file.file is a SpooledTemporaryFile/IO
-        chunk = upload_file.file.read()
-        buffer.write(chunk)
-    return dest_path
-
-def convert_doc_to_docx(doc_path: str) -> str:
+# -----------------------------------------------------------------------------
+# 2️ embed_text(): Convert text → numerical embedding vector
+# -----------------------------------------------------------------------------
+def embed_text(text):
     """
-    Convert .doc -> .docx using libreoffice command-line.
-    Requires libreoffice installed.
-    Returns new .docx path (same directory).
-    """
-    out_dir = os.path.dirname(doc_path) or "."
-    # call libreoffice safely
-    subprocess.run([
-        "libreoffice", "--headless", "--convert-to", "docx",
-        "--outdir", out_dir, doc_path
-    ], check=False)  # don't fail hard; in class demo, document may already be docx
-    base = os.path.splitext(os.path.basename(doc_path))[0]
-    new_path = os.path.join(out_dir, f"{base}.docx")
-    return new_path
+    Return embedding (list of floats). If model missing, return deterministic fallback.
 
-def extract_text_docx(path: str) -> str:
-    """Read .docx file and return concatenated text."""
+    Args:
+        text (str): Resume or job description text.
+
+    Returns:
+        list[float]: 384-dimensional vector representing semantic meaning.
+
+    Why fallback? 
+        - In case sentence-transformers isn't installed, we still want the system
+          to run (for testing or in restricted environments).
+        - The fallback generates a fake, deterministic vector from hash(text)
+          so repeated inputs produce consistent outputs.
+    """
+    if not text:
+        return []
+
+    if MODEL:
+        vec = MODEL.encode([text], show_progress_bar=False)[0]
+        return vec.tolist()
+
+    # fallback: create a deterministic pseudo-vector using hash value
+    h = abs(hash(text)) % 1000
+    vec = [((h + i) % 100) / 100.0 for i in range(384)]
+    return vec
+
+# -----------------------------------------------------------------------------
+# 3️ cosine_sim(): Compute similarity between two embedding vectors
+# -----------------------------------------------------------------------------
+def cosine_sim(a, b):
+    """
+    Compute cosine similarity between two numeric vectors.
+    Returns a value in range [-1, 1], where:
+      - 1.0 = perfectly similar
+      - 0.0 = no similarity
+      - -1.0 = opposite meaning
+
+    Example: cosine_sim(job_embedding, resume_embedding)
+    """
+    if not a or not b:
+        return 0.0
+    a = np.array(a, dtype=float)
+    b = np.array(b, dtype=float)
+    # Ensure same length by trimming to smaller vector
+    if a.size != b.size:
+        n = min(a.size, b.size)
+        a = a[:n]
+        b = b[:n]
+    denom = (np.linalg.norm(a) * np.linalg.norm(b))
+    if denom == 0:
+        return 0.0
+    return float(np.dot(a, b) / denom)
+
+# -----------------------------------------------------------------------------
+# 4️ extract_text_docx(): Extract text from a .docx resume file
+# -----------------------------------------------------------------------------
+def extract_text_docx(path):
+    """
+    Extract readable text from a Microsoft Word (.docx) document.
+    Uses the `python-docx` library internally.
+
+    Args:
+        path (str): Path to .docx file.
+
+    Returns:
+        str: Combined text content (paragraphs joined with newlines).
+
+    Raises:
+        RuntimeError: If python-docx is not installed.
+    """
+    try:
+        from docx import Document
+    except Exception as e:
+        raise RuntimeError("python-docx not installed") from e
+
     doc = Document(path)
+    # Collect all non-empty paragraph texts
     paragraphs = [p.text for p in doc.paragraphs if p.text and p.text.strip()]
     return "\n".join(paragraphs)
 
-# Contact regexes (simple, general)
-_EMAIL_RE = re.compile(r"[\w\.-]+@[\w\.-]+\.\w+")
-_PHONE_RE = re.compile(r"(\+?\d{1,3}[\s\-\.\(]?)?(\d{2,4}[\s\-\.\)]?){2,4}")
+# -----------------------------------------------------------------------------
+# 5️ Regex patterns for emails and phone numbers
+# -----------------------------------------------------------------------------
+# We precompile regular expressions for efficiency.
+# - RE_EMAIL matches typical email formats (e.g., name@example.com)
+# - RE_PHONE matches local and international phone numbers with optional '+'
+# -----------------------------------------------------------------------------
+RE_EMAIL = re.compile(r"([a-zA-Z0-9_.+\-]+@[a-zA-Z0-9\-]+\.[a-zA-Z0-9\-.]+)")
+RE_PHONE = re.compile(r"(\+?\d[\d\-\s]{6,}\d)")
 
-def parse_contacts(text: str) -> Dict:
-    email_match = _EMAIL_RE.search(text)
-    email = email_match.group(0) if email_match else None
-    phone_match = _PHONE_RE.search(text)
-    phone = phone_match.group(0) if phone_match else None
-    # Heuristic for name: first non-empty line not containing email/phone
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
+# -----------------------------------------------------------------------------
+# 6️ parse_contacts(): Extract name, email, and phone from text
+# -----------------------------------------------------------------------------
+def parse_contacts(text):
+    """
+    Extracts contact info from resume text.
+
+    - Name: first few lines containing alphabets (usually at the top of a resume)
+    - Email: first match of email pattern
+    - Phone: first match of phone pattern
+
+    Returns:
+        dict: {"name": ..., "email": ..., "phone": ...}
+    """
+    # Split lines and clean whitespace
+    lines = [l.strip() for l in (text or "").splitlines() if l.strip()]
     name = None
-    for line in lines[:5]:
-        if email and email in line: continue
-        if phone and phone in line: continue
-        # simple garbage filter
-        if len(line.split()) <= 6 and len(line) < 60:
-            name = line
-            break
+
+    # Heuristic: the first meaningful line with alphabets is probably the name
+    if lines:
+        for ln in lines[:5]:
+            if re.search(r"[A-Za-z]", ln):
+                name = ln
+                break
+        if not name:
+            name = lines[0]
+
+    # Find first email and phone matches using regex
+    email = None
+    phone = None
+    m = RE_EMAIL.search(text or "")
+    if m:
+        email = m.group(1)
+    p = RE_PHONE.search(text or "")
+    if p:
+        phone = p.group(1)
+
     return {"name": name, "email": email, "phone": phone}
 
-def extract_skills(text: str, canonical_skills: List[str], threshold: float = 0.72) -> List[Tuple[str, float]]:
+# -----------------------------------------------------------------------------
+# 7️ extract_skills(): Detect known skills in resume text
+# -----------------------------------------------------------------------------
+def extract_skills(text, canonical_skills):
     """
-    Return list of (skill_name, confidence).
-    - exact substring matches (high confidence)
-    - embedding similarity fallback (if model available)
+    Simple skill extractor:
+      - Uses exact case-insensitive substring matching.
+      - canonical_skills: list of known skill names from DB.
+      - Returns list of (skill_name, confidence) tuples.
+
+    Example:
+        text = "Experienced in Python and Machine Learning"
+        canonical_skills = ["python", "java", "machine learning"]
+        → output = [("python", 0.95), ("machine learning", 0.95)]
     """
-    found = {}
-    low = text.lower()
-    # exact matches
+    found = []
+    low = (text or "").lower()
+
     for s in canonical_skills:
+        if not s:
+            continue
         if s.lower() in low:
-            found[s] = max(found.get(s, 0.7), 0.9)  # exact match high confidence
+            found.append((s, 0.95))  # fixed confidence for now
 
-    # embedding-based augmentation
-    model = None
-    try:
-        model = get_model()
-    except Exception:
-        model = None
+    # Deduplicate skills while keeping original order
+    seen = set()
+    out = []
+    for s, c in found:
+        if s not in seen:
+            seen.add(s)
+            out.append((s, c))
+    return out
 
-    if model:
-        # embed resume text once
-        resume_emb = model.encode(text, convert_to_numpy=True)
-        skill_embs = model.encode(canonical_skills, convert_to_numpy=True)
-        # compute cosine sims
-        for i, s in enumerate(canonical_skills):
-            sim = float(np.dot(resume_emb, skill_embs[i]) / (np.linalg.norm(resume_emb)+1e-8) / (np.linalg.norm(skill_embs[i])+1e-8))
-            if sim >= threshold:
-                found[s] = max(found.get(s, 0.5), sim)  # use sim as confidence
-    # return list
-    return [(k, float(v)) for k, v in found.items()]
+# -----------------------------------------------------------------------------
+# 8️ compute_final_score(): Combine semantic + skill scores into final ranking
+# -----------------------------------------------------------------------------
+def compute_final_score(job_emb, resume_emb, job_skill_ids, resume_skill_ids,
+                        weight_semantic=0.7, weight_skill=0.3):
+    """
+    Combine semantic and skill overlap into one final score.
 
-def embed_text(text: str) -> List[float]:
-    model = get_model()
-    vec = model.encode(text, convert_to_numpy=True)
-    return vec.tolist()
+    Args:
+        job_emb (list[float]): embedding of job description
+        resume_emb (list[float]): embedding of resume text
+        job_skill_ids (list[int]): skill IDs required for the job
+        resume_skill_ids (list[int]): skill IDs found in the resume
+        weight_semantic (float): relative weight for semantic score (default 0.7)
+        weight_skill (float): relative weight for skill overlap score (default 0.3)
 
-def cosine_scaled(a: List[float], b: List[float]) -> float:
-    # Return cosine similarity scaled to [0,1]
-    a = np.array(a)
-    b = np.array(b)
-    denom = (np.linalg.norm(a) * np.linalg.norm(b)) + 1e-10
-    cos = float(np.dot(a, b) / denom)
-    return (cos + 1.0) / 2.0  # scale from [-1,1] to [0,1]
+    Returns:
+        dict:
+            {
+              "semantic": semantic_score (0–1),
+              "skill": skill_score (0–1),
+              "final_score": weighted_combination (0–1)
+            }
 
-def compute_final_score(job_emb, resume_emb, job_skill_ids, resume_skill_ids, weight_semantic=0.7, weight_skill=0.3):
-    # semantic
-    s_sem = cosine_scaled(job_emb, resume_emb)
-    # skill score: matched_required_skills / total_required_skills
-    total = len(job_skill_ids)
-    if total == 0:
-        s_skill = 1.0  # if job requires no skills, treat as perfect on skills
-    else:
+    Formula:
+        semantic = (cosine_sim + 1) / 2   → normalize to 0–1
+        skill = (# matched skills) / (# job skills)
+        final = 0.7 * semantic + 0.3 * skill
+    """
+    # Semantic similarity from embeddings
+    sem_raw = cosine_sim(job_emb, resume_emb)
+    semantic = (sem_raw + 1.0) / 2.0
+
+    # Skill overlap fraction
+    skill = 0.0
+    if job_skill_ids:
         matched = len(set(job_skill_ids).intersection(set(resume_skill_ids)))
-        s_skill = matched / total
-    final = weight_semantic * s_sem + weight_skill * s_skill
-    return {"score_semantic": s_sem, "score_skill": s_skill, "final_score": final}
+        skill = matched / len(job_skill_ids)
+
+    # Weighted final score (tunable weights)
+    final = weight_semantic * semantic + weight_skill * skill
+    return {"semantic": semantic, "skill": skill, "final_score": final}
