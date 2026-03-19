@@ -1,132 +1,326 @@
 // frontend/src/components/Dashboard.jsx
-import React, { useState, useEffect } from "react";
-import axios from "axios";
-import { Bar } from "react-chartjs-2";
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-} from "chart.js";
+// ==============================
+// IMPORTS
+// ==============================
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
+// React hooks:
+// useState → to store data (like jobs, summary)
+// useEffect → runs code when component loads
+import React, { useEffect, useState } from "react";
+
+// API instance (Axios)
+// Used to call backend endpoints
+import api, { API_BASE_URL } from "../api";
+
+// Charts component (for graphs)
+import Charts from "./Charts";
+
+// Modal for single candidate details
+import CandidateModal from "./CandidateModal";
+
+// Modal for comparing multiple candidates
+import CompareModal from "./CompareModal";
+
+// Toast notifications (popup messages)
+import { toast } from "react-toastify";
+
+
+// ==============================
+// MAIN COMPONENT
+// ==============================
 
 export default function Dashboard() {
-  const [jobId, setJobId] = useState("");
-  const [rankings, setRankings] = useState([]);
-  const [topSkills, setTopSkills] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
 
-  const backendUrl = "http://127.0.0.1:8000";
+  // ==============================
+  // STATE VARIABLES (DATA STORAGE)
+  // ==============================
 
-  // Fetch top skills for visualization
+  const [jobs, setJobs] = useState([]);  
+  // Stores list of jobs fetched from backend
+
+  const [jobId, setJobId] = useState(null);  
+  // Stores selected job ID
+
+  const [summary, setSummary] = useState(null);  
+  // Stores job summary (candidates, skills, charts data)
+
+  const [loading, setLoading] = useState(false);  
+  // Used to show loading state (button disabled / text change)
+
+  const [compareIds, setCompareIds] = useState([]);  
+  // Stores selected candidate IDs for comparison
+
+  const [openCandidate, setOpenCandidate] = useState(null);  
+  // Stores candidate for modal popup
+
+  const [showCompare, setShowCompare] = useState(false);  
+  // Controls compare modal visibility
+
+  const [message, setMessage] = useState("");  
+  // Optional message display
+
+
+  // ==============================
+  // RUN ON PAGE LOAD
+  // ==============================
+
   useEffect(() => {
-    axios
-      .get(`${backendUrl}/api/analytics/top-skills`)
-      .then((res) => setTopSkills(res.data))
-      .catch(() => setTopSkills([]));
+    loadJobs(); // Load jobs when page loads
   }, []);
 
-  const fetchRankings = async () => {
-    if (!jobId) return alert("Please enter a Job ID");
-    setLoading(true);
-    setMessage("");
+
+  // ==============================
+  // FUNCTION: LOAD JOBS
+  // ==============================
+
+  async function loadJobs() {
     try {
-      const res = await axios.post(`${backendUrl}/api/jobs/${jobId}/rank`);
-      if (res.data.status === "done") {
-        const ranked = await axios.get(`${backendUrl}/api/jobs/${jobId}/rankings`);
-        setRankings(ranked.data);
-        setMessage(`✅ Rankings generated for Job ID ${jobId}`);
-      } else {
-        setMessage("⚠️ No rankings generated");
-      }
-    } catch (err) {
-      console.error(err);
-      setMessage("❌ Failed to fetch rankings. Check backend logs.");
+      const res = await api.get("/api/jobs"); // Call backend API
+      setJobs(res.data || []); // Store jobs in state
+    } catch (e) {
+      toast.error("❌ Failed to load jobs"); // Show error popup
+    }
+  }
+
+
+  // ==============================
+  // FUNCTION: FETCH SUMMARY
+  // ==============================
+
+  async function fetchSummary(id) {
+    if (!id) {
+      setSummary(null); // If no job selected, clear summary
+      return;
+    }
+
+    setLoading(true); // Start loading
+    setMessage("");
+
+    try {
+      // Call backend summary API
+      const res = await api.get(`/api/jobs/${Number(id)}/summary`);
+      setSummary(res.data || null);
+    } catch (e) {
+      toast.error("❌ Failed to load summary");
+      setSummary(null);
+    } finally {
+      setLoading(false); // Stop loading
+    }
+  }
+
+
+  // ==============================
+  // FUNCTION: GENERATE RANKINGS
+  // ==============================
+
+  async function generateRankings() {
+    if (!jobId) {
+      toast.warn("⚠️ Please select a job first");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // Call backend ranking API
+      await api.post(`/api/jobs/${Number(jobId)}/rank`);
+
+      toast.success("✅ Rankings generated!");
+
+      // Reload summary after ranking
+      await fetchSummary(jobId);
+
+    } catch (e) {
+      toast.error("❌ Ranking failed");
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const chartData = {
-    labels: topSkills.map((s) => s.skill_name),
-    datasets: [
-      {
-        label: "Top Skills Frequency",
-        data: topSkills.map((s) => s.matches),
-        backgroundColor: "rgba(54, 162, 235, 0.6)",
-      },
-    ],
-  };
+
+  // ==============================
+  // FUNCTION: JOB SELECT
+  // ==============================
+
+  function onJobSelect(e) {
+    const val = e.target.value;
+
+    const numeric = val ? Number(val) : null;
+
+    setJobId(numeric);        // Save selected job
+    fetchSummary(numeric);    // Load its summary
+  }
+
+
+  // ==============================
+  // FUNCTION: TOGGLE COMPARE
+  // ==============================
+
+  function toggleCompare(candidate_id) {
+    setCompareIds((prev) =>
+      prev.includes(candidate_id)
+        ? prev.filter((x) => x !== candidate_id) // Remove if already selected
+        : [...prev, candidate_id].slice(0, 4)    // Add (max 4 candidates)
+    );
+  }
+
+
+  // ==============================
+  // UI RENDER STARTS HERE
+  // ==============================
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 p-8">
-      <h1 className="text-3xl font-bold mb-6 text-center">
-        📊 Resume Ranking Dashboard
-      </h1>
+    <div style={{ padding: 18 }}>
 
-      {/* --- Top Skills Chart --- */}
-      <div className="bg-white p-6 rounded-2xl shadow-md mb-8 max-w-4xl mx-auto">
-        <h2 className="text-xl font-semibold mb-4">Top Matched Skills</h2>
-        {topSkills.length > 0 ? (
-          <Bar data={chartData} />
-        ) : (
-          <p className="text-gray-500">No skills data available yet.</p>
-        )}
+      {/* ==============================
+          HEADER SECTION
+      ============================== */}
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h1>🤖 AI-Powered Resume Screening System</h1>
+
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+
+          {/* JOB DROPDOWN */}
+          <select
+            value={jobId ?? ""}
+            onChange={onJobSelect}
+            style={{ padding: 8, borderRadius: 8, minWidth: 260 }}
+          >
+            <option value="">Select a job...</option>
+
+            {/* Loop through jobs */}
+            {jobs.map((j) => (
+              <option key={j.job_id} value={j.job_id}>
+                {j.job_id} — {j.title}
+              </option>
+            ))}
+          </select>
+
+          {/* GENERATE BUTTON */}
+          <button
+            onClick={generateRankings}
+            disabled={!jobId || loading}
+            className="btn"
+          >
+            {loading ? "Processing..." : "Generate Rankings"}
+          </button>
+
+        </div>
       </div>
 
-      {/* --- Ranking Section --- */}
-      <div className="bg-white p-6 rounded-2xl shadow-md max-w-4xl mx-auto">
-        <h2 className="text-xl font-semibold mb-4">Rank Candidates by Job</h2>
-        <div className="flex gap-4 items-center mb-4">
-          <input
-            type="text"
-            placeholder="Enter Job ID (e.g., 1)"
-            className="border p-2 rounded-lg w-48"
-            value={jobId}
-            onChange={(e) => setJobId(e.target.value)}
-          />
-          <button
-            onClick={fetchRankings}
-            disabled={loading}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
-          >
-            {loading ? "Processing..." : "Fetch Rankings"}
-          </button>
+
+      {/* ==============================
+          EMPTY STATE (NO JOB SELECTED)
+      ============================== */}
+
+      {!summary ? (
+        <div style={{ marginTop: 24, textAlign: "center" }}>
+          <h2>No Job Selected</h2>
+          <p>Select a job to see results</p>
         </div>
 
-        {message && <p className="mb-4 text-green-700 font-medium">{message}</p>}
+      ) : (
 
-        {/* Rankings Table */}
-        {rankings.length > 0 ? (
-          <table className="w-full border border-gray-200 text-left text-sm">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="border px-3 py-2">#</th>
-                <th className="border px-3 py-2">Candidate Name</th>
-                <th className="border px-3 py-2">Resume ID</th>
-                <th className="border px-3 py-2">Score</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rankings.map((r, idx) => (
-                <tr key={r.ranking_id} className="hover:bg-gray-50">
-                  <td className="border px-3 py-2">{idx + 1}</td>
-                  <td className="border px-3 py-2">{r.candidate_name}</td>
-                  <td className="border px-3 py-2">{r.resume_id}</td>
-                  <td className="border px-3 py-2 font-semibold">{r.score.toFixed(3)}</td>
-                </tr>
+        <>
+          {/* ==============================
+              OVERVIEW SECTION
+          ============================== */}
+
+          <div style={{ marginTop: 16 }} className="card">
+            <div className="card-title">Overview</div>
+
+            <div style={{ marginTop: 8 }}>
+              <Charts
+                jobSkillCounts={summary.job_skill_counts || []}
+                candidates={summary.candidates || []}
+              />
+            </div>
+          </div>
+
+
+          {/* ==============================
+              CANDIDATES LIST
+          ============================== */}
+
+          <div className="card" style={{ marginTop: 16 }}>
+            <div className="card-title">Ranked Candidates</div>
+
+            <div style={{ marginTop: 12 }}>
+
+              {summary.candidates.map((c) => (
+
+                <div key={c.resume_id} className="cand-card">
+
+                  {/* BASIC INFO */}
+                  <div>
+                    <strong>{c.candidate_name}</strong>
+                    <div>
+                      Score: {c.score.toFixed(3)}
+                    </div>
+                  </div>
+
+                  {/* ACTION BUTTONS */}
+                  <div>
+                    <button onClick={() => setOpenCandidate(c)}>View</button>
+
+                    <input
+                      type="checkbox"
+                      checked={compareIds.includes(c.candidate_id)}
+                      onChange={() => toggleCompare(c.candidate_id)}
+                    />
+
+                    <a
+                      href={`${API_BASE_URL}/api/resumes/${c.resume_id}/download`}
+                      target="_blank"
+                    >
+                      Download
+                    </a>
+                  </div>
+
+                </div>
+
               ))}
-            </tbody>
-          </table>
-        ) : (
-          <p className="text-gray-500">No rankings loaded yet.</p>
-        )}
-      </div>
+
+              {/* COMPARE BUTTON */}
+              <button
+                onClick={() => setShowCompare(true)}
+                disabled={compareIds.length < 2}
+              >
+                Compare Selected ({compareIds.length})
+              </button>
+
+            </div>
+          </div>
+        </>
+      )}
+
+
+      {/* ==============================
+          MODALS
+      ============================== */}
+
+      {/* Candidate Details Modal */}
+      {openCandidate && (
+        <CandidateModal
+          candidate={openCandidate}
+          jobSkills={summary?.job_skills || []}
+          onClose={() => setOpenCandidate(null)}
+        />
+      )}
+
+      {/* Compare Modal */}
+      {showCompare && (
+        <CompareModal
+          ids={compareIds}
+          jobId={jobId}
+          onClose={() => {
+            setShowCompare(false);
+            setCompareIds([]);
+          }}
+        />
+      )}
+
     </div>
   );
 }
