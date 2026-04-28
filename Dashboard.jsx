@@ -1,326 +1,381 @@
-// frontend/src/components/Dashboard.jsx
-// ==============================
-// IMPORTS
-// ==============================
-
-// React hooks:
-// useState → to store data (like jobs, summary)
-// useEffect → runs code when component loads
 import React, { useEffect, useState } from "react";
-
-// API instance (Axios)
-// Used to call backend endpoints
 import api, { API_BASE_URL } from "../api";
-
-// Charts component (for graphs)
 import Charts from "./Charts";
-
-// Modal for single candidate details
 import CandidateModal from "./CandidateModal";
-
-// Modal for comparing multiple candidates
 import CompareModal from "./CompareModal";
-
-// Toast notifications (popup messages)
 import { toast } from "react-toastify";
-
-
-// ==============================
-// MAIN COMPONENT
-// ==============================
+import { useNavigate } from "react-router-dom";
 
 export default function Dashboard() {
 
-  // ==============================
-  // STATE VARIABLES (DATA STORAGE)
-  // ==============================
+const navigate = useNavigate();
 
-  const [jobs, setJobs] = useState([]);  
-  // Stores list of jobs fetched from backend
+const [jobs, setJobs] = useState([]);
+const [jobId, setJobId] = useState(null);
+const [summary, setSummary] = useState(null);
+const [loading, setLoading] = useState(false);
+const [compareIds, setCompareIds] = useState([]);
+const [openCandidate, setOpenCandidate] = useState(null);
+const [showCompare, setShowCompare] = useState(false);
+const [message, setMessage] = useState("");
 
-  const [jobId, setJobId] = useState(null);  
-  // Stores selected job ID
+useEffect(() => {
+  loadJobs();
+}, []); // ✅ FIXED
 
-  const [summary, setSummary] = useState(null);  
-  // Stores job summary (candidates, skills, charts data)
+async function loadJobs() {
+  try {
+    const raw_user_id = localStorage.getItem("user_id");
+    const role = localStorage.getItem("role");
 
-  const [loading, setLoading] = useState(false);  
-  // Used to show loading state (button disabled / text change)
+    const user_id = Number(raw_user_id);
 
-  const [compareIds, setCompareIds] = useState([]);  
-  // Stores selected candidate IDs for comparison
-
-  const [openCandidate, setOpenCandidate] = useState(null);  
-  // Stores candidate for modal popup
-
-  const [showCompare, setShowCompare] = useState(false);  
-  // Controls compare modal visibility
-
-  const [message, setMessage] = useState("");  
-  // Optional message display
-
-
-  // ==============================
-  // RUN ON PAGE LOAD
-  // ==============================
-
-  useEffect(() => {
-    loadJobs(); // Load jobs when page loads
-  }, []);
-
-
-  // ==============================
-  // FUNCTION: LOAD JOBS
-  // ==============================
-
-  async function loadJobs() {
-    try {
-      const res = await api.get("/api/jobs"); // Call backend API
-      setJobs(res.data || []); // Store jobs in state
-    } catch (e) {
-      toast.error("❌ Failed to load jobs"); // Show error popup
-    }
-  }
-
-
-  // ==============================
-  // FUNCTION: FETCH SUMMARY
-  // ==============================
-
-  async function fetchSummary(id) {
-    if (!id) {
-      setSummary(null); // If no job selected, clear summary
+    // ✅ HARD VALIDATION
+    if (!raw_user_id || !role || isNaN(user_id) || user_id <= 0) {
+      toast.error("❌ Invalid user session. Please login again.");
+      localStorage.clear();   // 🔥 ADD THIS
+      navigate("/login");
       return;
     }
 
-    setLoading(true); // Start loading
-    setMessage("");
+    const res = await api.get("/api/jobs", {
+      params: {
+        user_id: user_id,
+        role: role
+      }
+    });
 
-    try {
-      // Call backend summary API
-      const res = await api.get(`/api/jobs/${Number(id)}/summary`);
-      setSummary(res.data || null);
-    } catch (e) {
-      toast.error("❌ Failed to load summary");
-      setSummary(null);
-    } finally {
-      setLoading(false); // Stop loading
-    }
+    setJobs(res.data || []);
+  } catch (e) {
+    toast.error("❌ Failed to load jobs");
+  }
+}
+async function fetchSummary(id) {
+  if (!id) {
+    setSummary(null);
+    return;
   }
 
+  setLoading(true);
+  setMessage("");
 
-  // ==============================
-  // FUNCTION: GENERATE RANKINGS
-  // ==============================
+  try {
+    const raw_user_id = localStorage.getItem("user_id");
+    const role = localStorage.getItem("role");
 
-  async function generateRankings() {
-    if (!jobId) {
-      toast.warn("⚠️ Please select a job first");
+    const user_id = Number(raw_user_id);
+
+    // ✅ SAME VALIDATION HERE (VERY IMPORTANT)
+    if (!raw_user_id || !role || isNaN(user_id) || user_id <= 0) {
+      toast.error("❌ Session expired. Please login again.");
+      localStorage.clear();
+      navigate("/login");
       return;
     }
 
-    setLoading(true);
+    const res = await api.get(`/api/jobs/${Number(id)}/summary`, {
+      params: {
+        user_id: user_id,
+        role: role
+      }
+    });
 
-    try {
-      // Call backend ranking API
-      await api.post(`/api/jobs/${Number(jobId)}/rank`);
+    setSummary(res.data || null);
 
-      toast.success("✅ Rankings generated!");
+  } catch (e) {
+    toast.error("❌ Failed to load summary");
+    setSummary(null);
+  } finally {
+    setLoading(false);
+  }
+}
 
-      // Reload summary after ranking
-      await fetchSummary(jobId);
+async function generateRankings() {
+if (!jobId) {
+toast.warn("⚠️ Please select a job first");
+return;
+}
+setLoading(true);
+try {
+await api.post(`/api/jobs/${Number(jobId)}/rank`);
+toast.success("✅ Rankings generated!");
+await fetchSummary(jobId);
+} catch (e) {
+toast.error("❌ Ranking failed");
+} finally {
+setLoading(false);
+}
+}
 
-    } catch (e) {
-      toast.error("❌ Ranking failed");
-    } finally {
-      setLoading(false);
+function onJobSelect(e) {
+const val = e.target.value;
+const numeric = val ? Number(val) : null;
+setJobId(numeric);
+fetchSummary(numeric);
+}
+
+function toggleCompare(candidate_id) {
+  setCompareIds((prev) => {
+    let updated;
+
+    if (prev.includes(candidate_id)) {
+      updated = prev.filter((x) => x !== candidate_id);
+    } else {
+      updated = [...prev, candidate_id]
     }
-  }
 
 
-  // ==============================
-  // FUNCTION: JOB SELECT
-  // ==============================
 
-  function onJobSelect(e) {
-    const val = e.target.value;
+    return updated;
+  });
+}
 
-    const numeric = val ? Number(val) : null;
+return (
+<div style={{ padding: 18 }}>
 
-    setJobId(numeric);        // Save selected job
-    fetchSummary(numeric);    // Load its summary
-  }
+  {/* HEADER */}
+  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <h1>🤖 AI-Based Resume Matching and Ranking System</h1>
+
+    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      <select
+        value={jobId ?? ""}
+        onChange={onJobSelect}
+        style={{ padding: 8, borderRadius: 8, minWidth: 260 }}
+      >
+        <option value="">Select a job...</option>
+        {jobs.map((j) => (
+          <option key={j.job_id} value={j.job_id}>
+            {j.job_id} — {j.title}
+          </option>
+        ))}
+      </select>
+
+      <div style={{ display: "flex", gap: 10 }}>
+        <button
+          onClick={generateRankings}
+          disabled={!jobId || loading}
+          className="btn"
+        >
+          {loading ? "Processing..." : "Generate Rankings"}
+        </button>
 
 
-  // ==============================
-  // FUNCTION: TOGGLE COMPARE
-  // ==============================
+        <button
+          onClick={() => navigate("/upload-job")}
+          style={{
+            padding: "8px 14px",
+            borderRadius: 8,
+            border: "none",
+            background: "#16a34a",
+            color: "#fff",
+            cursor: "pointer"
+          }}
+        >
+          ➕ Upload Job
+        </button>
+      </div>
 
-  function toggleCompare(candidate_id) {
-    setCompareIds((prev) =>
-      prev.includes(candidate_id)
-        ? prev.filter((x) => x !== candidate_id) // Remove if already selected
-        : [...prev, candidate_id].slice(0, 4)    // Add (max 4 candidates)
-    );
-  }
+    </div>
+  </div>
 
+  {message && (
+    <div style={{ marginTop: 10, color: "#2b6cb0" }}>{message}</div>
+  )}
 
-  // ==============================
-  // UI RENDER STARTS HERE
-  // ==============================
+  {!summary ? (
+    <div
+      style={{
+        marginTop: 24,
+        borderRadius: 16,
+        padding: 30,
+        textAlign: "center",
+        background: "linear-gradient(135deg, #f8fafc, #eef2ff)",
+        border: "1px solid #e2e8f0",
+        boxShadow: "0 10px 25px rgba(0,0,0,0.05)"
+      }}
+    >
+      <div style={{ fontSize: 40 }}>📊</div>
+      <h2 style={{ margin: "10px 0" }}>No Job Selected</h2>
+      <p style={{ color: "#64748b", fontSize: 14 }}>
+        Select a job to view candidate rankings, skill insights, and AI-based analysis.
+      </p>
+    </div>
+  ) : (
+    <>
+      {/* OVERVIEW */}
+      <div style={{ marginTop: 16 }} className="card">
+        <div className="card-title">Overview</div>
 
-  return (
-    <div style={{ padding: 18 }}>
+        <div style={{ display: "grid", gap: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ fontWeight: 700 }}>{summary.title}</div>
+              <div className="small">
+                Job ID: {summary.job_id} • {summary.job_skills?.length || 0} skills
+              </div>
+            </div>
 
-      {/* ==============================
-          HEADER SECTION
-      ============================== */}
+            <div>
+              <div className="small">Top Skills</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {[...(summary.job_skill_counts || [])]
+                  .sort((a, b) => (b.matches || 0) - (a.matches || 0))
+                  .slice(0, 5)
+                  .map((s) => (
+                    <div key={s.skill_name} className="chip matched">
+                      {s.skill_name} • {s.matches}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </div>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h1>🤖 AI-Powered Resume Screening System</h1>
-
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-
-          {/* JOB DROPDOWN */}
-          <select
-            value={jobId ?? ""}
-            onChange={onJobSelect}
-            style={{ padding: 8, borderRadius: 8, minWidth: 260 }}
-          >
-            <option value="">Select a job...</option>
-
-            {/* Loop through jobs */}
-            {jobs.map((j) => (
-              <option key={j.job_id} value={j.job_id}>
-                {j.job_id} — {j.title}
-              </option>
-            ))}
-          </select>
-
-          {/* GENERATE BUTTON */}
-          <button
-            onClick={generateRankings}
-            disabled={!jobId || loading}
-            className="btn"
-          >
-            {loading ? "Processing..." : "Generate Rankings"}
-          </button>
-
+          <Charts
+            jobSkillCounts={summary.job_skill_counts || []}
+            candidates={summary.candidates || []}
+          />
         </div>
       </div>
 
+      {/* CANDIDATES */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-title">Ranked Candidates</div>
 
-      {/* ==============================
-          EMPTY STATE (NO JOB SELECTED)
-      ============================== */}
+        <div className="card-grid">
+          {(summary.candidates || []).map((c) => (
+            <div key={`${c.resume_id}-${c.candidate_id}`} className="cand-card">
 
-      {!summary ? (
-        <div style={{ marginTop: 24, textAlign: "center" }}>
-          <h2>No Job Selected</h2>
-          <p>Select a job to see results</p>
-        </div>
-
-      ) : (
-
-        <>
-          {/* ==============================
-              OVERVIEW SECTION
-          ============================== */}
-
-          <div style={{ marginTop: 16 }} className="card">
-            <div className="card-title">Overview</div>
-
-            <div style={{ marginTop: 8 }}>
-              <Charts
-                jobSkillCounts={summary.job_skill_counts || []}
-                candidates={summary.candidates || []}
-              />
-            </div>
-          </div>
-
-
-          {/* ==============================
-              CANDIDATES LIST
-          ============================== */}
-
-          <div className="card" style={{ marginTop: 16 }}>
-            <div className="card-title">Ranked Candidates</div>
-
-            <div style={{ marginTop: 12 }}>
-
-              {summary.candidates.map((c) => (
-
-                <div key={c.resume_id} className="cand-card">
-
-                  {/* BASIC INFO */}
-                  <div>
-                    <strong>{c.candidate_name}</strong>
-                    <div>
-                      Score: {c.score.toFixed(3)}
-                    </div>
+              <div className="cand-header">
+                <div>
+                  <div className="cand-title">
+                    {c.candidate_name || `#${c.candidate_id}`}
                   </div>
 
-                  {/* ACTION BUTTONS */}
-                  <div>
-                    <button onClick={() => setOpenCandidate(c)}>View</button>
-
-                    <input
-                      type="checkbox"
-                      checked={compareIds.includes(c.candidate_id)}
-                      onChange={() => toggleCompare(c.candidate_id)}
-                    />
-
-                    <a
-                      href={`${API_BASE_URL}/api/resumes/${c.resume_id}/download`}
-                      target="_blank"
-                    >
-                      Download
-                    </a>
+                  <div className="cand-meta">
+                    Score: <strong>{(c.score ?? 0).toFixed(3)}</strong>
                   </div>
-
                 </div>
 
-              ))}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <button onClick={() => setOpenCandidate(c)} className="btn secondary">
+                    View
+                  </button>
+                  {/* ✅ ADD THIS BUTTON */}
+<button
+  onClick={() => toggleCompare(c.candidate_id)}
+  className="btn ghost"
+  style={{
+    background: compareIds.includes(c.candidate_id) ? "#e0f2fe" : "",
+    border: compareIds.includes(c.candidate_id) ? "1px solid #0284c7" : ""
+  }}
+>
+  {compareIds.includes(c.candidate_id) ? "✓ Selected" : "Compare"}
+</button>
 
-              {/* COMPARE BUTTON */}
-              <button
-                onClick={() => setShowCompare(true)}
-                disabled={compareIds.length < 2}
-              >
-                Compare Selected ({compareIds.length})
-              </button>
+                  {/* ✅ FIXED: USE BACKEND STATUS */}
+                  <div style={{
+                    marginTop: 8,
+                    padding: "6px 10px",
+                    borderRadius: 6,
+                    background: c.status === "accepted" ? "#dcfce7" : "#fee2e2",
+                    color: c.status === "accepted" ? "#166534" : "#991b1b",
+                    fontWeight: "bold",
+                    textAlign: "center"
+                  }}>
+                    {c.status === "accepted" ? "✅ Accepted" : "❌ Rejected"}
+                  </div>
+
+                  <a
+                    href={`${API_BASE_URL}/api/resumes/${c.resume_id}/download`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Download
+                  </a>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                <div><b>Matched:</b> {c.matched_skills.join(", ")}</div>
+                <div><b>Missing:</b> {c.missing_skills.join(", ")}</div>
+              </div>
 
             </div>
-          </div>
-        </>
-      )}
+          ))}
+        </div>
+      </div>
+    </>
+  )}
 
+  {openCandidate && (
+    <CandidateModal
+      candidate={openCandidate}
+      jobSkills={summary?.job_skills || []}
+      onClose={() => setOpenCandidate(null)}
+    />
+  )}
 
-      {/* ==============================
-          MODALS
-      ============================== */}
+  {showCompare && (
+    <CompareModal
+      ids={compareIds}
+      jobId={jobId}
+      onClose={() => {
+        setShowCompare(false);
+        setCompareIds([]);
+      }}
+    />
+  )}
+{compareIds.length > 0 && (
+  <div
+    style={{
+      position: "fixed",
+      bottom: 20,
+      left: "50%",
+      transform: "translateX(-50%)",
+      background: "#1e293b",
+      color: "#fff",
+      padding: "12px 20px",
+      borderRadius: 12,
+      boxShadow: "0 10px 25px rgba(0,0,0,0.2)",
+      display: "flex",
+      gap: 12,
+      alignItems: "center",
+      zIndex: 1000
+    }}
+  >
+    <span>{compareIds.length} selected</span>
 
-      {/* Candidate Details Modal */}
-      {openCandidate && (
-        <CandidateModal
-          candidate={openCandidate}
-          jobSkills={summary?.job_skills || []}
-          onClose={() => setOpenCandidate(null)}
-        />
-      )}
+    <button
+      onClick={() => setShowCompare(true)}
+      disabled={compareIds.length < 2}
+      style={{
+        padding: "6px 12px",
+        borderRadius: 6,
+        border: "none",
+        background: compareIds.length < 2 ? "#94a3b8" : "#22c55e",
+        color: "#fff",
+        cursor: compareIds.length < 2 ? "not-allowed" : "pointer"
+      }}
+    >
+      Compare
+    </button>
 
-      {/* Compare Modal */}
-      {showCompare && (
-        <CompareModal
-          ids={compareIds}
-          jobId={jobId}
-          onClose={() => {
-            setShowCompare(false);
-            setCompareIds([]);
-          }}
-        />
-      )}
-
-    </div>
-  );
+    <button
+      onClick={() => setCompareIds([])}
+      style={{
+        padding: "6px 12px",
+        borderRadius: 6,
+        border: "none",
+        background: "#ef4444",
+        color: "#fff",
+        cursor: "pointer"
+      }}
+    >
+      Clear
+    </button>
+  </div>
+)}
+</div>
+);
 }
