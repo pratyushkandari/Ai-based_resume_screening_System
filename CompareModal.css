@@ -1,229 +1,195 @@
 /* =============================================================================================
-    FILE: frontend/src/components/CompareModal.css
-   =============================================================================================
-    PURPOSE OF THIS FILE:
-   ---------------------------------------------------------------------------------------------
-   This CSS file styles the "CompareModal" component in your frontend project.
-
-   The CompareModal is a popup window that allows you to COMPARE multiple candidates side-by-side.
-   You can see their details, matching scores, radar charts, and skills comparison in a clean layout.
-
-   This file defines the visual layout:
-      Dark background overlay (when modal is open)
-      White popup window (modal box)
-      Candidate cards, charts, and radar grids inside the modal
-      Buttons, chips, and responsive behavior
-
-   It’s used only for the CompareModal.jsx component (frontend).
-   On Windows, it’s automatically included in the React app when imported like:
-   → import "./CompareModal.css";
-
-    LOCATION (Windows path):
-   C:\pbldbms\frontend\src\components\CompareModal.css
-   ============================================================================================= */
-
-
-/* =============================================================================================
-    GENERAL WINDOWS NOTE:
-   ---------------------------------------------------------------------------------------------
-   - This file is static styling. It does not run in PowerShell or Python — only in the browser.
-   - You can edit and save (Ctrl + S), and Vite will hot-reload your browser view instantly.
-   - The changes appear at http://localhost:5173 when running `npm run dev`.
-   ============================================================================================= */
-
-
-/* =============================================================================================
-    BACKDROP (DARK OVERLAY BEHIND MODAL)
-   ============================================================================================= */
+   BACKDROP (DARK OVERLAY)
+============================================================================================= */
 .cm-backdrop {
-  position: fixed;                 /* Keeps modal fixed over the entire screen (even if scrolled) */
-  inset: 0;                        /* Shortcut for top:0; right:0; bottom:0; left:0 — covers entire viewport */
-  background: rgba(0,0,0,0.45);    /* Semi-transparent black background — dims the screen behind modal */
-  display: flex;                   /* Enables flexbox layout for centering modal box */
-  justify-content: center;         /* Centers modal horizontally */
-  align-items: center;             /* Centers modal vertically */
-  z-index: 1200;                   /* High stacking order so it appears above everything else */
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1200;
 }
 
+
 /* =============================================================================================
-    MODAL BOX (WHITE CONTAINER)
-   ============================================================================================= */
+   MODAL BOX
+============================================================================================= */
 .cm-modal {
-  width: 95%;                      /* Modal covers 95% of screen width (responsive) */
-  max-width: 1200px;               /* But never wider than 1200px (fits large monitors) */
-  max-height: 90vh;                /* Limit height to 90% of viewport height (so it fits vertically) */
-  background: #fff;                /* White background for contrast against dark overlay */
-  border-radius: 10px;             /* Rounded corners for modern, clean look */
-  padding: 16px;                   /* Inner spacing so content doesn’t touch the edges */
-  overflow-y: auto;                /* Adds vertical scroll if content is too tall */
-  box-shadow: 0 6px 30px rgba(0,0,0,0.2); /* Soft shadow for elevation effect */
+  width: 95%;
+  max-width: 1200px;
+  max-height: 90vh;
+  background: #fff;
+  border-radius: 10px;
+  padding: 16px;
+  overflow-y: auto;
+  box-shadow: 0 6px 30px rgba(0,0,0,0.2);
+
+  /* ✨ NEW: smooth scroll */
+  scroll-behavior: smooth;
 }
 
+
 /* =============================================================================================
-    MODAL HEADER (TITLE + CLOSE BUTTON)
-   ============================================================================================= */
+   HEADER
+============================================================================================= */
 .cm-header {
-  display: flex;                   /* Flexbox used to align title and buttons horizontally */
-  justify-content: space-between;  /* Title on left, close/download buttons on right */
-  align-items: center;             /* Vertically center everything */
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-/* Red "Close" button in top-right corner */
 .cm-close {
-  background: #e53e3e;             /* Bright red background */
-  color: #fff;                     /* White text */
-  border: none;                    /* Removes default button border */
-  padding: 6px 10px;               /* Adds space inside the button */
-  border-radius: 6px;              /* Slightly rounded corners */
-  cursor: pointer;                 /* Changes mouse cursor to pointer (clickable) */
+  background: #e53e3e;
+  color: #fff;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
 }
 
-/* Loading text shown while charts or data load */
+
+/* =============================================================================================
+   LOADING
+============================================================================================= */
 .cm-loading {
-  padding: 20px;                   /* Adds space around loading text */
-  text-align: center;              /* Centers loading message horizontally */
-  color: #666;                     /* Neutral gray color */
+  padding: 20px;
+  text-align: center;
+  color: #666;
 }
 
+
 /* =============================================================================================
-    SUMMARY SECTION (CANDIDATE CARDS OVERVIEW)
-   ============================================================================================= */
+   EMPTY STATE (🔥 NEW)
+============================================================================================= */
+.cm-empty {
+  padding: 30px;
+  text-align: center;
+  color: #64748b;
+  font-size: 14px;
+}
+
+
+/* =============================================================================================
+   SUMMARY CARDS
+============================================================================================= */
 .cm-summary {
-  display: flex;                   /* Flexbox used to arrange cards side by side */
-  gap: 12px;                       /* Adds space between each card */
-  flex-wrap: wrap;                 /* Allows cards to wrap to next line if screen too narrow */
-  margin-top: 10px;                /* Space between header and cards */
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 10px;
 }
 
-/* Individual small card showing summary of each candidate */
 .cm-card {
-  background: #f7fafc;             /* Light gray-blue background */
-  border-radius: 8px;              /* Rounded edges for clean UI */
-  padding: 12px;                   /* Internal padding */
-  width: 240px;                    /* Fixed width for uniform cards */
-  box-shadow: 0 1px 6px rgba(0,0,0,0.04); /* Subtle shadow for soft depth */
+  background: #f7fafc;
+  border-radius: 8px;
+  padding: 12px;
+  width: 240px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.04);
+
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
-/* Makes small text (like labels) lighter in color */
+/* ✨ subtle hover effect */
+.cm-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
 .cm-card small {
-  color: #666;                     /* Medium gray for less emphasis */
+  color: #666;
 }
 
+
 /* =============================================================================================
-    CHARTS ROW (LAYOUT FOR RADAR + BAR CHARTS SIDE BY SIDE)
-   ============================================================================================= */
+   CHART ROW
+============================================================================================= */
 .cm-charts-row {
-  display: flex;                   /* Arranges radar grid and bar chart horizontally */
-  gap: 12px;                       /* Adds space between radar grid and bar chart box */
-  margin-top: 14px;                /* Spacing above charts section */
-  align-items: flex-start;          /* Align charts at the top (not stretched) */
+  display: flex;
+  gap: 12px;
+  margin-top: 14px;
+  align-items: flex-start;
+
+  /* 🔥 FIX: responsive wrapping */
+  flex-wrap: wrap;
 }
 
+
 /* =============================================================================================
-    RADAR CHART GRID (MULTIPLE SMALL RADAR CHARTS FOR EACH CANDIDATE)
-   ============================================================================================= */
+   RADAR GRID
+============================================================================================= */
 .cm-radar-grid {
-  display: grid;                   /* Grid layout to auto-fit multiple radar cards */
+  display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-                                   /* Automatically fill row with radar cards that are
-                                      minimum 260px wide and expand evenly across row */
-  gap: 12px;                       /* Space between each radar card */
-  flex: 1;                         /* Let it take remaining width next to bar chart box */
+  gap: 12px;
+  flex: 1;
 }
 
-/* Individual radar chart container card */
 .cm-radar-card {
-  background: #fff;                /* White background */
-  padding: 10px;                   /* Inner padding for chart area */
-  border-radius: 8px;              /* Rounded corners */
-  border: 1px solid #eef2f7;       /* Light border for structure */
-  box-shadow: 0 1px 6px rgba(0,0,0,0.02); /* Very subtle shadow */
-  display: flex;                   /* Vertical alignment for chart content */
+  background: #fff;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #eef2f7;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.02);
+  display: flex;
   flex-direction: column;
-  align-items: stretch;            /* Ensures radar chart fills available width */
+  align-items: stretch;
 }
 
+
 /* =============================================================================================
-    RIGHT-SIDE BAR BOX (SKILL FREQUENCY CHART CONTAINER)
-   ============================================================================================= */
+   BAR CHART BOX
+============================================================================================= */
 .cm-bar-box {
-  width: 420px;                    /* Fixed width to align neatly next to radar grid */
-  background: #fff;                /* White background */
-  padding: 12px;                   /* Space inside the box */
-  border-radius: 8px;              /* Rounded corners */
-  border: 1px solid #eef2f7;       /* Light gray border */
+  width: 420px;
+  min-height: 350px; /* 🔥 FIX: prevents collapse */
+
+  background: #fff;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #eef2f7;
 }
+
 
 /* =============================================================================================
-    SKILL CHIPS (MATCHED & MISSING TAGS)
-   ============================================================================================= */
+   SKILL CHIPS
+============================================================================================= */
 .chip {
-  display: inline-block;           /* Makes chips appear inline (side by side) */
-  padding: 6px 8px;                /* Inner padding for readable text */
-  margin: 6px 6px 0 0;             /* Outer margin to create spacing between chips */
-  border-radius: 8px;              /* Rounded pill-shaped look */
-  font-size: 13px;                 /* Slightly smaller text for compactness */
+  display: inline-block;
+  padding: 6px 8px;
+  margin: 6px 6px 0 0;
+  border-radius: 8px;
+  font-size: 13px;
 }
 
-/* Green chip = skill matched */
 .chip.matched {
-  background: #ecfdf5;             /* Soft green background */
-  color: #065f46;                  /* Dark green text */
-  border: 1px solid rgba(6,95,70,0.08); /* Light border for visual separation */
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid rgba(6,95,70,0.08);
 }
 
-/* Red chip = skill missing */
 .chip.missing {
-  background: #fff5f5;             /* Soft red/pink background */
-  color: #8b1d1d;                  /* Dark red text */
+  background: #fff5f5;
+  color: #8b1d1d;
   border: 1px solid rgba(139,29,29,0.06);
 }
 
 
 /* =============================================================================================
-    HOW THIS CSS CONNECTS TO YOUR PROJECT
-   =============================================================================================
-   - This CSS file styles the CompareModal.jsx React component.
+   RESPONSIVE IMPROVEMENTS (🔥 NEW)
+============================================================================================= */
+@media (max-width: 900px) {
+  .cm-bar-box {
+    width: 100%;
+  }
 
-   In CompareModal.jsx:
-   - The main popup div uses the "cm-backdrop" and "cm-modal" classes.
-   - Each candidate card inside the modal uses "cm-card".
-   - The radar chart containers use "cm-radar-grid" and "cm-radar-card".
-   - The skill tags inside candidate profiles use "chip", "chip.matched", "chip.missing".
+  .cm-modal {
+    padding: 12px;
+  }
+}
 
-   Together, they create a responsive, modern UI for comparing candidates.
-
-    Example import inside CompareModal.jsx:
-     import "./CompareModal.css";
-
-   React automatically applies these styles when the modal is rendered.
-   ============================================================================================= */
-
-
-/* =============================================================================================
-    WINDOWS DEVELOPER NOTES
-   =============================================================================================
-    Running the frontend on Windows:
-     cd C:\pbldbms\frontend
-     npm run dev
-     → Open http://localhost:5173
-
-    Editing & Hot Reloading:
-     - Open this file in VS Code (recommended).
-     - Save (Ctrl + S) — browser updates automatically (Vite hot reload).
-     - You do NOT need to restart the server.
-
-    Common Debug Tips:
-     - If modal looks unstyled → Check import line: `import "./CompareModal.css";`
-     - If fonts or colors don’t appear → Clear browser cache (Ctrl + Shift + R).
-     - If background doesn’t darken → Confirm "cm-backdrop" div is rendered.
-
-    Customization Ideas:
-     - Change modal width (max-width: 1200px → 1000px) to make smaller.
-     - Change chip colors to match your brand palette.
-     - Adjust z-index if something overlaps the modal.
-
-    Why this file matters:
-     This CSS defines how professional and readable your comparison modal looks.
-     It transforms raw data into a clean, human-friendly UI — without touching logic.
-   =============================================================================================
+@media (max-width: 600px) {
+  .cm-card {
+    width: 100%;
+  }
+}
