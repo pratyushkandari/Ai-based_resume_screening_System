@@ -4,45 +4,14 @@ import re
 import os
 import numpy as np
 
-# -----------------------------------------------------------------------------
-#  PURPOSE OF THIS FILE:
-# -----------------------------------------------------------------------------
-# This module contains **Machine Learning (ML)** and **text processing utilities**
-# for the Resume Screening System.
-#
-# The functions here help the backend to:
-#   1. Convert resume/job text into vector embeddings (numerical form).
-#   2. Measure semantic similarity between texts.
-#   3. Extract plain text, names, emails, and phone numbers from resumes.
-#   4. Detect skills from resume text based on a known skill list.
-#   5. Combine all of these signals into a single ranking score.
-#
-# Each function can be used independently, which makes debugging and testing
-# simpler for students and beginners.
-# -----------------------------------------------------------------------------
 
-# -----------------------------------------------------------------------------
-# 1️ Load the Sentence Transformer Model
-# -----------------------------------------------------------------------------
-# The "all-MiniLM-L6-v2" model is a small pre-trained model that converts text
-# into numerical vectors (called **embeddings**) which capture meaning.
-#
-# Why embeddings? Because once both job descriptions and resumes are converted
-# into embeddings, we can compute how *semantically similar* they are using
-# cosine similarity (like measuring angle between vectors).
-#
-# If this model isn't installed (e.g., no internet or limited system),
-# we gracefully fallback to a deterministic pseudo-vector generator below.
-# -----------------------------------------------------------------------------
 try:
     from sentence_transformers import SentenceTransformer
     MODEL = SentenceTransformer("all-MiniLM-L6-v2")
 except Exception:
     MODEL = None  # fallback if model isn't available
 
-# -----------------------------------------------------------------------------
-# 2️ embed_text(): Convert text → numerical embedding vector
-# -----------------------------------------------------------------------------
+
 def embed_text(text):
     """
     Return embedding (list of floats). If model missing, return deterministic fallback.
