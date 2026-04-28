@@ -1,33 +1,4 @@
-// =============================================================================================
-//  FILE: frontend/src/components/Charts.jsx
-// =============================================================================================
-//
-//  PURPOSE OF THIS FILE:
-// ---------------------------------------------------------------------------------------------
-// This file defines the "Charts" React component that visualizes analytical data
-// from your ML-based Resume Screening System. It shows multiple interactive charts
-// — all rendered dynamically based on backend data (from FastAPI).
-//
-// Specifically, it displays:
-//   1️ A Bar chart — shows how many candidates cover each job skill.
-//   2️ A Donut chart — shows distribution of candidate quality (High/Medium/Low).
-//   3️ A Scatter chart — compares semantic similarity vs skill match percentage.
-//   4️ A Line chart — visualizes each candidate’s skill coverage (✓ matched / ✕ missing).
-//
-// This file uses React + Chart.js libraries. You see these visualizations in your
-// web browser when you run: `npm run dev` and open http://localhost:5173.
-//
-// ---------------------------------------------------------------------------------------------
-//  FILE LOCATION (Windows):
-// C:\pbldbms\frontend\src\components\Charts.jsx
-//
-// React automatically bundles this file through Vite when you run your frontend server.
-// =============================================================================================
 
-
-// ---------------------------------------------------------------------------------------------
-//  STEP 1️: IMPORT REQUIRED LIBRARIES
-// ---------------------------------------------------------------------------------------------
 import React, { useMemo } from "react";  // React core library + useMemo optimization hook
 import { Bar, Doughnut, Scatter, Line } from "react-chartjs-2";  // 4 chart components from react-chartjs-2 wrapper
 
@@ -45,12 +16,7 @@ import {
   Title,
 } from "chart.js";
 
-// ---------------------------------------------------------------------------------------------
-//  REGISTER CHART COMPONENTS
-// ---------------------------------------------------------------------------------------------
-// Chart.js requires us to register the chart components (scales, elements, plugins)
-// before we can use them. Think of this like “enabling” certain chart types.
-// ---------------------------------------------------------------------------------------------
+
 ChartJS.register(
   CategoryScale,   // x-axis (categorical)
   LinearScale,     // y-axis (numeric)
@@ -64,30 +30,14 @@ ChartJS.register(
 );
 
 
-// ---------------------------------------------------------------------------------------------
-//  STEP 2️: COLOR PALETTE
-// ---------------------------------------------------------------------------------------------
-// These are 10 pre-selected HEX color codes used to style charts consistently.
-// Each candidate or dataset will automatically get one of these colors by index.
-// ---------------------------------------------------------------------------------------------
+
 const COLORS = [
   "#2563eb", "#059669", "#db2777", "#d97706", "#8b5cf6",
   "#e11d48", "#0ea5a6", "#1f2937", "#065f46", "#BE185D"
 ];
 
 
-// ---------------------------------------------------------------------------------------------
-// 🖍️ STEP 3️: FUNCTION TO CREATE CUSTOM MARKERS (✓ and ✕)
-// ---------------------------------------------------------------------------------------------
-// This function dynamically creates small circular icons for use as data points
-// in the Line chart at the bottom of this component.
-//
-// It draws a small circle and places either a ✓ (tick) or ✕ (cross) symbol inside it.
-// Each symbol’s color corresponds to the candidate’s assigned color.
-//
-// These icons are rendered into an invisible <canvas> element, then turned into an
-// image that Chart.js can use for points.
-// ---------------------------------------------------------------------------------------------
+
 function createMarkerImage(char, color) {
   // Create a small HTML <canvas> to draw on
   const c = document.createElement("canvas");
@@ -118,34 +68,15 @@ function createMarkerImage(char, color) {
 }
 
 
-// ---------------------------------------------------------------------------------------------
-//  STEP 4️: DEFINE MAIN COMPONENT — Charts
-// ---------------------------------------------------------------------------------------------
-//
-// Props received from parent (JobSummary page):
-//   jobSkillCounts → array of { skill_name, matches } objects (from backend job summary)
-//   candidates → array of candidate summary objects (with scores, embeddings, etc.)
-//
-// This component then generates four types of charts using that data.
-// ---------------------------------------------------------------------------------------------
+
 export default function Charts({ jobSkillCounts = [], candidates = [] }) {
 
-  // -------------------------------------------------------------------------------------------
-  // SKILL LABELS
-  // -------------------------------------------------------------------------------------------
-  // Extracts all skill names from jobSkillCounts to use as chart labels.
-  // Fallback: if skill_name missing, show "—"
-  // -------------------------------------------------------------------------------------------
+
   const skillLabels = jobSkillCounts.map(
     (s) => s.skill_name || s.skill || "—"
   );
 
-  // -------------------------------------------------------------------------------------------
-  //  PRE-CREATE TICK (✓) AND CROSS (✕) IMAGES
-  // -------------------------------------------------------------------------------------------
-  // useMemo ensures the function runs only once for performance.
-  // These markers are used in the line chart for skill presence visualization.
-  // -------------------------------------------------------------------------------------------
+
   const [tickImg, crossImg] = useMemo(
     () => [
       createMarkerImage("✓", "#10B981"), // green tick
@@ -154,13 +85,7 @@ export default function Charts({ jobSkillCounts = [], candidates = [] }) {
     []
   );
 
-  // ===========================================================================================
-  //  CHART 1 — BAR CHART (JOB SKILL COVERAGE)
-  // ===========================================================================================
-  //
-  // Shows how many candidates have each skill.
-  // For example: “Python – 4 candidates”, “SQL – 3 candidates”.
-  // -------------------------------------------------------------------------------------------
+
   const barData = {
     labels: skillLabels,
     datasets: [
@@ -183,15 +108,7 @@ export default function Charts({ jobSkillCounts = [], candidates = [] }) {
     layout: { padding: { top: 8, bottom: 8 } },
   };
 
-  // ===========================================================================================
-  //  CHART 2 — DONUT CHART (CANDIDATE QUALITY DISTRIBUTION)
-  // ===========================================================================================
-  //
-  // Categorizes candidates based on score percentage:
-  //   ≥75% = High quality
-  //   50–74% = Medium
-  //   <50% = Low
-  // -------------------------------------------------------------------------------------------
+
   const qualityBuckets = useMemo(() => {
     const buckets = { high: 0, medium: 0, low: 0 };
     (candidates || []).forEach((c) => {
@@ -238,15 +155,7 @@ export default function Charts({ jobSkillCounts = [], candidates = [] }) {
     layout: { padding: 8 },
   };
 
-  // ===========================================================================================
-  //  CHART 3 — SCATTER CHART (SEMANTIC VS SKILL-MATCH)
-  // ===========================================================================================
-  //
-  // Each dot = one candidate.
-  // X-axis = semantic similarity (%)
-  // Y-axis = skill-match (%)
-  // Helps visualize balance between understanding (semantic) and technical fit (skills).
-  // -------------------------------------------------------------------------------------------
+
   const scatterDatasets = (candidates || []).map((c, idx) => {
     const color = COLORS[idx % COLORS.length];
     const semanticPct = Math.round((c.semantic || 0) * 100);
@@ -271,14 +180,7 @@ export default function Charts({ jobSkillCounts = [], candidates = [] }) {
     },
   };
 
-  // ===========================================================================================
-  //  CHART 4 — LINE CHART (SKILL PRESENCE LINES)
-  // ===========================================================================================
-  //
-  // Each line = one candidate.
-  // Each point = ✓ (skill present) or ✕ (missing).
-  // Shows which candidates cover which job skills.
-  // -------------------------------------------------------------------------------------------
+
   const lineDatasets = (candidates || []).map((cand, idx) => {
     const color = COLORS[idx % COLORS.length];
     const data = (cand.coverage_vector || []).map((v) => (v ? 1 : 0));
@@ -317,15 +219,7 @@ export default function Charts({ jobSkillCounts = [], candidates = [] }) {
     },
   };
 
-  // ===========================================================================================
-  //  STEP 5️: RETURN THE JSX LAYOUT
-  // ===========================================================================================
-  //
-  // Uses CSS grid to layout all charts neatly:
-  //   - Left: Bar chart
-  //   - Right: Donut + Scatter
-  //   - Bottom: Line chart
-  // -------------------------------------------------------------------------------------------
+
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <div
@@ -394,54 +288,3 @@ export default function Charts({ jobSkillCounts = [], candidates = [] }) {
   );
 }
 
-// =============================================================================================
-//  HOW THIS FILE FITS INTO THE PROJECT
-// =============================================================================================
-//
-// Used inside: frontend/src/pages/JobSummary.jsx
-// JobSummary fetches job + candidate data from backend and passes it here:
-//   <Charts jobSkillCounts={jobSummary.job_skill_counts} candidates={jobSummary.candidates} />
-//
-// Chart data comes from FastAPI backend (main.py → job_summary endpoint).
-//
-// - Backend sends skill names + match counts + candidate stats
-// - Charts.jsx visualizes them in real time in your browser.
-// =============================================================================================
-
-
-// =============================================================================================
-//  WINDOWS-SPECIFIC NOTES (BEGINNER-FRIENDLY)
-// =============================================================================================
-//
-//  Run the frontend (in PowerShell):
-//   cd C:\pbldbms\frontend
-//   npm run dev
-//   → Open browser at http://localhost:5173
-//
-//  Dependencies (auto-installed by npm):
-//   react, react-dom, react-chartjs-2, chart.js
-//
-//  Troubleshooting:
-//   - If chart not showing → run: npm install chart.js react-chartjs-2
-//   - If blank screen → open browser DevTools (F12) → “Console” → check for red errors.
-//
-//  Hot Reloading:
-//   - When you save this file (Ctrl + S), Vite automatically updates the page in your browser.
-//
-//  Tip:
-//   - You can adjust chart heights (height: 340, 300, etc.) if they don’t fit your screen.
-//   - All charts are responsive, meaning they resize automatically on window resize.
-//
-// =============================================================================================
-//
-//  IN SHORT
-// ---------------------------------------------------------------------------------------------
-// This component takes raw numerical data from backend and turns it into visual insights:
-//   ✔ Bar chart → Skill coverage among candidates.
-//   ✔ Donut chart → Quality distribution (High/Medium/Low).
-//   ✔ Scatter chart → Relationship between semantic and skill scores.
-//   ✔ Line chart → Detailed skill-by-skill coverage per candidate.
-//
-// These visuals help you instantly understand which candidates fit the job best.
-//
-// =============================================================================================
