@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from typing import List, Tuple, Any, Dict, Optional
 from datetime import datetime
+import re
 
 # FastAPI modules for building REST APIs
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form
@@ -20,33 +21,12 @@ from sqlalchemy import func, text, or_
 # Import local project modules
 from .db import SessionLocal, engine, Base
 from . import models, schemas, ml_utils
+from .auth import hash_password, verify_password
 
-# -----------------------------------------------------------------------------
-#  PURPOSE OF THIS FILE:
-# -----------------------------------------------------------------------------
-# This is the **main FastAPI backend application file**.
-#
-# It defines all REST API routes (endpoints) for the project:
-#    Uploading resumes
-#    Creating and listing jobs
-#    Generating and fetching rankings
-#    Fetching summarized dashboard data
-#    Downloading resume files
-#
-# It acts as the “controller” connecting the database (via SQLAlchemy models)
-# and the ML utilities (via ml_utils.py).
-# -----------------------------------------------------------------------------
 
-# -----------------------------------------------------------------------------
-#  Database Initialization
-# -----------------------------------------------------------------------------
-# This ensures that all database tables defined in models.py are created if missing.
 Base.metadata.create_all(bind=engine)
 
-# -----------------------------------------------------------------------------
-#  Logging Configuration
-# -----------------------------------------------------------------------------
-# Enables basic logging so that all major actions and errors appear in terminal.
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -55,11 +35,7 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------------
 app = FastAPI(title="ML Resume Screening (Fixed, Aggregated Summary)")
 
-# -----------------------------------------------------------------------------
-# Enable CORS (Cross-Origin Resource Sharing)
-# -----------------------------------------------------------------------------
-# This allows frontend apps (like React/Vue) to make requests to this backend API.
-# In production, restrict allowed origins to your frontend’s domain.
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # allow all origins (for dev/testing)
@@ -340,15 +316,30 @@ def upload_resume(
 # =============================================================================
 #  API: Create Job + List Jobs
 # =============================================================================
+from fastapi import Form  # ✅ make sure this import exists at top
+
 @app.post("/api/jobs", response_model=schemas.JobOut)
-def create_job(job: schemas.JobCreate, db: Session = Depends(get_db)):
+def create_job(
+    title: str = Form(...),
+    description: str = Form(""),
+    created_by: int = Form(...),   # ✅ ADDED
+    skills: Optional[str] = Form(""),  # ✅ ADDED (comma separated)
+    db: Session = Depends(get_db)
+):
     """
     Create a new job entry.
     Optionally embeds its description for semantic matching.
     """
-    job_row = models.Job(title=job.title, description=job.description)
+
+    # ✅ UPDATED: include created_by
+    job_row = models.Job(
+        title=title,
+        description=description,
+        created_by=created_by
+    )
+
     try:
-        job_row.embedding = ml_utils.embed_text(job.description or job.title)
+        job_row.embedding = ml_utils.embed_text(description or title)
     except Exception:
         job_row.embedding = None
 
@@ -356,34 +347,53 @@ def create_job(job: schemas.JobCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(job_row)
 
-    # Add job skills if provided
+    # ✅ UPDATED: handle skills from string → list
     seen_skill_ids = []
-    for s in job.skills or []:
-        s_clean = s.strip()
-        if not s_clean:
-            continue
-        s_lower = s_clean.lower()
-        skill_row = db.query(models.Skill).filter(func.lower(models.Skill.skill_name) == s_lower).first()
+    skills_list = [s.strip() for s in skills.split(",") if s.strip()]
+
+    for s in skills_list:
+        s_lower = s.lower()
+
+        skill_row = db.query(models.Skill).filter(
+            func.lower(models.Skill.skill_name) == s_lower
+        ).first()
+
         if not skill_row:
             skill_row = models.Skill(skill_name=s_lower)
             db.add(skill_row)
             db.commit()
             db.refresh(skill_row)
+
         if skill_row.skill_id not in seen_skill_ids:
-            exists_js = db.query(models.JobSkill).filter_by(job_id=job_row.job_id, skill_id=skill_row.skill_id).first()
+            exists_js = db.query(models.JobSkill).filter_by(
+                job_id=job_row.job_id,
+                skill_id=skill_row.skill_id
+            ).first()
+
             if not exists_js:
-                db.add(models.JobSkill(job_id=job_row.job_id, skill_id=skill_row.skill_id, required_level=1))
+                db.add(models.JobSkill(
+                    job_id=job_row.job_id,
+                    skill_id=skill_row.skill_id,
+                    required_level=1
+                ))
                 seen_skill_ids.append(skill_row.skill_id)
+
     db.commit()
 
-    logger.info("Created job %s (id=%s)", job_row.title, job_row.job_id)
-    return {"job_id": job_row.job_id, "title": job_row.title, "description": job_row.description}
+    logger.info(
+        "Created job %s (id=%s) by user %s",
+        job_row.title,
+        job_row.job_id,
+        created_by
+    )
 
-@app.get("/api/jobs")
-def list_jobs(db: Session = Depends(get_db)):
-    """Return all jobs in the system (most recent first)."""
-    rows = db.query(models.Job).order_by(models.Job.created_at.desc()).all()
-    return [{"job_id": j.job_id, "title": j.title, "description": j.description} for j in rows]
+    return {
+        "job_id": job_row.job_id,
+        "title": job_row.title,
+        "description": job_row.description
+    }
+
+
 
 # =============================================================================
 #  API: Generate Rankings
@@ -424,18 +434,35 @@ def rank_job(job_id: int, db: Session = Depends(get_db)):
         else:
             # Simple fallback if embeddings unavailable
             if job_skill_ids:
-                matched = len(set(job_skill_ids).intersection(set(r_skill_ids)))
-                final_score = matched / len(job_skill_ids)
+                
 
-        # Insert or update ranking
+
+                matched = len(set(job_skill_ids).intersection(set(r_skill_ids)))
+                total = len(job_skill_ids)
+
+                skill_score = (matched / total) if total else 0.0
+
+                # Keep consistent with summary logic
+                final_score = 0.8 * skill_score
+
+
+
+
+        status = "accepted" if final_score >= 0.6 else "rejected"
         try:
-            db.add(models.Ranking(job_id=job_id, resume_id=r.resume_id, score=round(final_score, 6)))
+            db.add(models.Ranking(
+                job_id=job_id,
+                resume_id=r.resume_id,
+                score=round(final_score, 6),
+                status=status   # ✅ ADDED
+    )) 
             db.commit()
         except Exception:
             db.rollback()
             existing = db.query(models.Ranking).filter_by(job_id=job_id, resume_id=r.resume_id).first()
             if existing:
                 existing.score = round(final_score, 6)
+                existing.status = status   # ✅ IMPORTANT
                 db.add(existing)
                 db.commit()
         count += 1
@@ -447,24 +474,39 @@ def rank_job(job_id: int, db: Session = Depends(get_db)):
 #  API: Fetch Rankings + Job Summary
 # =============================================================================
 @app.get("/api/jobs/{job_id}/rankings")
-def get_rankings(job_id: int, db: Session = Depends(get_db)):
-    """Return all ranking scores for a given job."""
-    rows = db.query(models.Ranking).filter_by(job_id=job_id).order_by(models.Ranking.score.desc()).all()
+def get_rankings(job_id: int, user_id: int, role: str, db: Session = Depends(get_db)):
+
+    job = db.query(models.Job).filter_by(job_id=job_id).first()
+    if not job:
+        raise HTTPException(404, "Job not found")
+
+    # 🔒 LOCK
+    if role.strip().lower() == "hr" and job.created_by != int(user_id):
+        raise HTTPException(403, "Not authorized")
+
+    rows = db.query(models.Ranking)\
+        .filter_by(job_id=job_id)\
+        .order_by(models.Ranking.score.desc())\
+        .all()
+
     out = []
     for row in rows:
         r = db.query(models.Resume).filter_by(resume_id=row.resume_id).first()
         cand = db.query(models.Candidate).filter_by(candidate_id=r.candidate_id).first()
+
         out.append({
             "ranking_id": row.ranking_id,
             "resume_id": r.resume_id,
             "candidate_id": cand.candidate_id,
             "candidate_name": cand.full_name,
             "score": row.score,
+            "status": "accepted" if row.score >= 0.6 else "rejected"  # 🔥 FORCE AUTO
         })
+
     return out
 
 @app.get("/api/jobs/{job_id}/summary")
-def job_summary(job_id: int, db: Session = Depends(get_db)):
+def job_summary(job_id: int, user_id: int, role: str, db: Session = Depends(get_db)):
     """
     Returns aggregated job summary for the dashboard:
       - One record per candidate (best resume chosen automatically)
@@ -474,6 +516,10 @@ def job_summary(job_id: int, db: Session = Depends(get_db)):
     job = db.query(models.Job).filter_by(job_id=job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    # ✅ SECURITY FIX: Only job owner HR can access
+    if role.strip().lower() == "hr" and job.created_by != int(user_id):
+        raise HTTPException(status_code=403, detail="Not authorized to view this job")
 
     # Collect job skill data
     job_skill_links = db.query(models.JobSkill).filter_by(job_id=job_id).all()
@@ -502,8 +548,17 @@ def job_summary(job_id: int, db: Session = Depends(get_db)):
             except Exception:
                 sem = 0.0
 
-        skill_score = round((len([s for s in job_skill_names if s in r_skill_set]) / len(job_skill_names)) if job_skill_names else 0.0, 3)
-        final = round(0.7 * sem + 0.3 * skill_score, 3)
+        matched_count = len([s for s in job_skill_names if s in r_skill_set])
+        total_skills = len(job_skill_names)
+
+        skill_score = round((matched_count / total_skills) if total_skills else 0.0, 3)
+
+        final = round(skill_score * 0.8 + sem * 0.2, 3)
+
+        # bonus boost
+        if skill_score > 0.7:
+            final += 0.05
+        final = min(final, 1.0)
 
         matched = [s for s in job_skill_names if s in r_skill_set]
         missing = [s for s in job_skill_names if s not in r_skill_set]
@@ -535,6 +590,7 @@ def job_summary(job_id: int, db: Session = Depends(get_db)):
         best = max(infos, key=lambda x: x["score"])
         matched_union = set()
         coverage_vector = [0] * len(job_skill_names)
+
         for info in infos:
             matched_union.update(info.get("matched_skills", []))
             vec = info.get("coverage_vector", [])
@@ -549,6 +605,14 @@ def job_summary(job_id: int, db: Session = Depends(get_db)):
             if coverage_vector[i]:
                 coverage_counts[s] = coverage_counts.get(s, 0) + 1
 
+        # 🔥 FETCH STATUS FROM RANKING TABLE
+        ranking_row = db.query(models.Ranking).filter_by(
+            job_id=job_id,
+            resume_id=best["resume_id"]
+        ).first()
+
+        status = "accepted" if best["score"] >= 0.6 else "rejected"
+
         candidates.append({
             "candidate_id": best["candidate_id"],
             "candidate_name": best["candidate_name"],
@@ -556,6 +620,7 @@ def job_summary(job_id: int, db: Session = Depends(get_db)):
             "semantic": best["semantic"],
             "skill_score": best["skill_score"],
             "score": best["score"],
+            "status": status,
             "matched_skills": matched,
             "missing_skills": missing,
             "coverage_vector": coverage_vector,
@@ -563,16 +628,27 @@ def job_summary(job_id: int, db: Session = Depends(get_db)):
         })
 
     job_skill_counts = [{"skill_name": s, "matches": int(coverage_counts.get(s, 0))} for s in job_skill_names]
-    agg = db.query(models.Skill.skill_name, func.count(func.distinct(models.Resume.candidate_id)).label("matches")) \
+
+    agg = db.query(models.Skill.skill_name,
+                   func.count(func.distinct(models.Resume.candidate_id)).label("matches")) \
         .join(models.ResumeSkill, models.ResumeSkill.skill_id == models.Skill.skill_id) \
         .join(models.Resume, models.Resume.resume_id == models.ResumeSkill.resume_id) \
-        .group_by(models.Skill.skill_name).order_by(func.count(func.distinct(models.Resume.candidate_id)).desc()).limit(10).all()
+        .group_by(models.Skill.skill_name) \
+        .order_by(func.count(func.distinct(models.Resume.candidate_id)).desc()) \
+        .limit(10).all()
+
     top_skills = [{"skill_name": a.skill_name, "matches": int(a.matches)} for a in agg]
 
     candidates = sorted(candidates, key=lambda x: x["score"], reverse=True)
-    return {"job_id": job.job_id, "title": job.title, "job_skills": job_skill_names,
-            "job_skill_counts": job_skill_counts, "top_skills": top_skills, "candidates": candidates}
 
+    return {
+        "job_id": job.job_id,
+        "title": job.title,
+        "job_skills": job_skill_names,
+        "job_skill_counts": job_skill_counts,
+        "top_skills": top_skills,
+        "candidates": candidates
+    }
 # =============================================================================
 #  API: Download Resume
 # =============================================================================
@@ -594,3 +670,138 @@ def debug_job_resumes(job_id: int, db: Session = Depends(get_db)):
     """Quick debugging endpoint: list resumes for a job."""
     rows = db.query(models.Resume).filter(models.Resume.job_id == job_id).order_by(models.Resume.uploaded_at.desc()).all()
     return [{"resume_id": r.resume_id, "uploaded_at": r.uploaded_at, "filename": r.filename, "candidate_id": r.candidate_id} for r in rows]
+
+@app.post("/api/register")
+def register(
+    name: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    role: str = Form(...),
+    db: Session = Depends(get_db)
+):
+
+    email = email.strip().lower()
+
+    # ✅ EMAIL VALIDATION
+    if not re.match(r"^[\w\.-]+@[\w\.-]+\.\w+$", email):
+        raise HTTPException(400, "Invalid email format (must contain @ and domain)")
+
+    # ✅ PASSWORD VALIDATION
+    if len(password) < 5:
+        raise HTTPException(400, "Password must be at least 5 characters")
+
+    if not re.search(r"[A-Za-z]", password) or not re.search(r"[0-9]", password):
+        raise HTTPException(400, "Password must contain letters and numbers")
+
+    # ✅ CHECK EXISTING USER
+    user = db.query(models.User).filter(
+        func.lower(models.User.email) == email
+    ).first()
+
+    if user:
+        raise HTTPException(400, "User already registered with this email")
+
+    new_user = models.User(
+        name=name,
+        email=email,
+        password=hash_password(password),
+        role=role
+    )
+
+    db.add(new_user)
+    db.commit()
+
+    return {"msg": "registered successfully"}
+
+@app.post("/api/login")
+def login(
+    email: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    email = email.strip().lower()
+
+    # ✅ EMAIL FORMAT CHECK
+    if not re.match(r"^[\w\.-]+@[\w\.-]+\.\w+$", email):
+        raise HTTPException(400, "Invalid email format")
+
+    user = db.query(models.User).filter(
+        func.lower(models.User.email) == email
+    ).first()
+
+    if not user:
+        raise HTTPException(401, "No account found with this email")
+
+    stored = user.password or ""
+
+    # 🔁 OLD PASSWORD MIGRATION (KEEPED EXACTLY)
+    if stored == password:
+        try:
+            user.password = hash_password(password)
+            db.add(user)
+            db.commit()
+        except Exception:
+            db.rollback()
+
+        return {
+            "role": user.role,
+            "name": user.name,
+            "user_id": user.user_id
+        }
+
+    # ✅ VERIFY PASSWORD
+    try:
+        if not verify_password(password, stored):
+            raise HTTPException(401, "Incorrect password")
+    except Exception:
+        raise HTTPException(401, "Invalid credentials")
+
+    return {
+        "role": user.role,
+        "name": user.name,
+        "user_id": user.user_id
+    }
+
+@app.get("/api/jobs")
+def list_jobs(role: str, user_id: int, db: Session = Depends(get_db)):
+
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Missing user_id")
+
+    role_clean = (role or "").strip().lower()
+
+    # 🔒 HARD LOCK: ONLY HR sees OWN jobs
+    if role_clean == "hr":
+        rows = db.query(models.Job)\
+            .filter(models.Job.created_by == int(user_id))\
+            .order_by(models.Job.created_at.desc())\
+            .all()
+    else:
+        rows = db.query(models.Job)\
+            .order_by(models.Job.created_at.desc())\
+            .all()
+
+    return [
+    {
+        "job_id": j.job_id,
+        "title": j.title,
+        "description": j.description,
+        "created_by": j.created_by,
+
+        # ✅ ADD THIS BLOCK (THIS IS THE FIX)
+        "skills": [
+            js.skill.skill_name
+            for js in j.job_skills
+            if js.skill and js.skill.skill_name
+        ]
+    }
+    for j in rows
+]
+from fastapi import Body  # ✅ ADD THIS IMPORT
+
+@app.post("/api/ranking/{id}/status")
+def update_status():
+    raise HTTPException(
+        status_code=403,
+        detail="Manual status update disabled. System is automatic."
+    )
