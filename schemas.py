@@ -3,24 +3,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 
-# -----------------------------------------------------------------------------
-#  PURPOSE OF THIS FILE:
-# -----------------------------------------------------------------------------
-# This file defines all **Pydantic models (schemas)** used for:
-#   Validating request data sent from the frontend → backend
-#   Structuring response data sent from backend → frontend
-#
-# FastAPI automatically uses these models to:
-#   - Validate input data types (e.g., title must be str, skills must be list)
-#   - Automatically generate clean JSON responses
-#   - Produce API documentation (Swagger UI)
-#
-# Think of these as “data blueprints” or “contracts” between frontend ↔ backend.
-# -----------------------------------------------------------------------------
 
-# =============================================================================
-#  ResumeUploadResponse
-# =============================================================================
 class ResumeUploadResponse(BaseModel):
     """
     Returned after a resume file is successfully uploaded and processed.
@@ -154,34 +137,3 @@ class JobSummaryOut(BaseModel):
     candidates: List[CandidateSummary]            # Ranked list of candidates with scores
 
 
-# -----------------------------------------------------------------------------
-#  QUICK SUMMARY TABLE (For Students)
-# -----------------------------------------------------------------------------
-# | Class Name            | Purpose / Used In Endpoint                     |
-# |-----------------------|------------------------------------------------|
-# | ResumeUploadResponse  | POST /api/resumes/upload – after resume upload |
-# | CandidateOut          | General candidate info response                |
-# | JobCreate             | POST /api/jobs – creating new job              |
-# | JobOut                | GET /api/jobs – job list output                |
-# | RankingOut            | GET /api/jobs/{id}/rankings                    |
-# | JobSkillCount         | Internal helper for skill match counts         |
-# | CandidateSummary      | Individual candidate’s evaluated data          |
-# | JobSummaryOut         | GET /api/jobs/{id}/summary (dashboard data)    |
-# -----------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------
-#  NOTES FOR BEGINNERS:
-# -----------------------------------------------------------------------------
-# - Every class inherits from `BaseModel`, which automatically handles:
-#     → Type validation
-#     → JSON serialization
-#     → Auto-documentation in Swagger
-#
-# - Optional[str] or Optional[List] means the field can be `None` or missing.
-#
-# - Pydantic automatically raises validation errors if the input doesn’t match
-#   the expected data type (e.g., if `score` is sent as a string instead of float).
-#
-# - These models ensure **clean and predictable data exchange**
-#   between backend (FastAPI) and frontend (React/Vue/etc.).
-# -----------------------------------------------------------------------------
